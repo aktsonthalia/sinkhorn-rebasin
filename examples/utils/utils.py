@@ -1,5 +1,8 @@
 import torch
 from copy import deepcopy
+import time
+import os
+import wandb
 
 
 def lerp(model1, model2, l, temporal_model=None):
@@ -59,3 +62,30 @@ def estep(x, y, model, criterion, device, param_precision):
     z = model(x.to(device).to(param_precision))
     loss_test = criterion(z, y.to(device))
     return z.detach().argmax(1), loss_test.detach().item()
+
+def load_model_from_wandb_id(entity, project, wandb_id):
+
+    for _ in range(10):
+        try:
+            api = wandb.Api()
+            run = api.run(f"{entity}/{project}/{wandb_id}")
+            checkpoints = [
+                artifact
+                for artifact in run.logged_artifacts()
+                if artifact.type == "model-weights"
+            ][0]
+            num_epochs = run.config["training"]["num_epochs"]
+            last_epoch_file = [
+                f
+                for f in checkpoints.files()
+                if f.name == f"{wandb_id}_checkpoint{num_epochs-1}.pt"
+            ][0]
+            download_path = last_epoch_file.download(
+                replace=True, root=os.environ["SCRATCH"] if "SCRATCH" in os.environ else "/workspace"
+            ).name
+            state_dict = torch.load(download_path)
+            return state_dict
+        except:
+            print("Failed to download model, trying again...")
+            time.sleep(10)
+            continue
